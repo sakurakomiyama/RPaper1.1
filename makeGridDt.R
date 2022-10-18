@@ -11,11 +11,7 @@ library(ggplot2)
 dir <- choose.dir()
 dir <- gsub('\\\\', '\\/', dir)
 
-lapply(c("Data/School_EROS.Rdata", "Data/spdf.Rdata", "gps.Rdata", 
-         paste0(dir,"/sandeel.Rdata"), paste0(dir,"/nonsandeel.Rdata")),load,.GlobalEnv)
-School_EROS.dt <- School.dt
-rm(School.dt)
-
+lapply(c("gps.Rdata",  paste0(dir,"/sandeel.Rdata")),load,.GlobalEnv)
 
 
 #============================#
