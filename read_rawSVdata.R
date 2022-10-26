@@ -45,25 +45,27 @@ read.rawSVdata <- function (dir, vessel, category) {
 #'C:/Data/S2019_SAILDRONE_1031/EXPORT/OTHER'               SD1031      noise    #
 #-------------------------------------------------------------------------------#
 
-
+#choose directory where each school's txt files from LSSS (raw SV data) are stored
 dir <- choose.dir()
 dir <- gsub('\\\\', '\\/', dir)
 
+#for "vessel" column
 vessel <- "SD1032" #EROS / SD1031 / SD1032
 
-category <- "noise" #KORONA / manual / noise #SAND / PSAND / OTHER / 
+#for "category" column
+#If Saildrone, PSAND->KORONA, SAND->manual, OTHER->noise
+category <- "noise" #SAND / PSAND / OTHER / KORONA / manual / noise
 
 
-
+#run the function
 SvSchool.dt <- read.rawSVdata(dir = dir, vessel = vessel, category = category)
 
+
+#change name of the data.table
 assign(paste("Svschool", vessel, category, sep = "_"), SvSchool.dt)
 
 
-
-
-
-
+#save data.table after combining 3 categories 
 SvSchool_EROS.dt <- rbind(Svschool_EROS_SAND, Svschool_EROS_PSAND, Svschool_EROS_OTHER)
 SvSchool_EROS.dt <- SvSchool_EROS.dt[!is.na(Sv)]
 save(SvSchool_EROS.dt, file = "C:/Data/rawSv_data/SvSchool_EROS.Rdata")
