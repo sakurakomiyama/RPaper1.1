@@ -44,6 +44,7 @@ aggregate(data$column, list(data$category,data$Frequency),  mean) # mean of "col
 any(is.na(others.df))
 colSums(is.na(df)) # number of NA in each column
 any(is.infinite(data$Transect82_200.df$TOTAL)) # check infinite number (the decimal continues infinitely)
+df$XXX <- zoo::na.approx(bf$XXX) #replace NaN by interpolating previous and next non-NaN values
 
 #### get first 3 row by condition ####
 head(data$Transect55_38.df[data$Transect55_38.df$TRANSECT=="T2",],n=3)  #first 3 row of 2nd Transect
@@ -60,8 +61,9 @@ memory.limit(size=56000) #expanding your memory 64bits:56000
 format(coef(fit_lm3), scientific = FALSE)
 format(-3.076e-03, scientific = FALSE)
 
-#### random number ####
+#### random number/ sampling ####
 a <- rpois(100, lambda=20) # 100 row, mean=20, poisson distribution
+sample(unique(dt$id),1)   ## choose 1 from all "id"
 
 
 #### plot window ####
@@ -87,3 +89,13 @@ dt$XX <- factor(dt$XX, #row order by group (if there are 4 groups A, B, C, D in 
 #### remove environment ####
 rm(list = ls()) #remove all
 rm(list=setdiff(ls(), c("gps.dt", "my_theme", "School_SD.dt", "School_EROS.dt"))) #remove except for ...
+
+
+
+#### change df name dynamically ####
+assign(paste("df", "2", sep = "_"), df)
+
+
+#### histrogram ####
+hist(df$XXX, breaks = 30, xlim = c(0, 100)) # break max-min into 30
+hist(df$XXX, breaks = c(1, 10, 25, 50, 75), xlim = c(0, 100))
