@@ -10,34 +10,27 @@ my_theme <- function() theme_bw(base_size=15) + theme(panel.grid.minor = element
 #================================#
 
 
-#setwd("C:/Users/a37907/Desktop/KnowSandeel15781/Data")
-#setwd("E:/KnowSandeel15781/Data")
+
+#====   school, gps, bio data   ====#
+lapply(c("C:/Data/School_EROS_bio.df", "C:/Data/spdf.Rdata", "C:/Data/School_data/School_SD1031.Rdata","C:/Data/School_data/School_SD1032.Rdata", "C:/Data/gps.Rdata", "C:/Data/School_data/School_EROS.Rdata"),load,.GlobalEnv)
 
 
-#====   school, trawl, bio data   ====#
-lapply(c("Data/School_EROS_bio.df", "Data/spdf.Rdata", "Data/School_SD.Rdata", "gps.Rdata"),load,.GlobalEnv)
-
-load("Data/School_EROS.Rdata")
-School_EROS.dt <- School.dt
-rm(School.dt)
-
-
-
-
+School_SD.dt <- rbind(School_SD1031.dt, School_SD1032.dt)
+setDT(School_SD.dt)[, id:= 1:.N, by=Frequency]
+rm(School_SD1031.dt, School_SD1032.dt)
 
 
 #=======================================#
-#===       find Sandeel school       ===#
 #### Discriminant analyses (LDA/DFA) ####
 #=======================================#
 
-#library("tidyverse")
+
 library("caret")
 #== pre-processing ==#
 cols <- c("Date","Latitude", "Longitude", "PingNo", "pixelNo", 
           "SampleCount", "vessel", "area", "YMD_time", "altitude", 
           "meanDepth", "DepthStart", "DepthStop", "sV_var", "nor_DepthStart", 
-          "nor_DepthStop", "nor_Depth",  "altitude_degree")
+          "nor_DepthStop", "nor_Depth",  "altitude_degree", "original_id", "coverage_name")
 
 data <- subset(School_EROS.dt, Frequency %in% c(200) 
                & !category %in% "PSAND"
@@ -58,30 +51,16 @@ data[,rf:=log(rf)][,SE:=log(SE)][,sA:=log(sA)][,school_area:=log(school_area)][,
 data[,Perimeter:=log(Perimeter)][,DepthfromBottom:=log(DepthfromBottom+1)][,school_height:=log(school_height)]
 data[,Elongation:=log(Elongation)][,school_rect:=log(school_rect)][,school_circ:=log(school_circ)]
 
-#== plot (*take long time) ==#
-#library("psych")
-#pairs.panels(data[, -c("id","category")],bg=c("pink","blue", "green")[as.factor(data$category)], pch=21, gap=0)
-
-#== Split the data into training and test set ==#
-#training.samples <- createDataPartition(data$category, p = 0.8, list = FALSE) #80% : training data, 20% : test data
-#train.data <- data[training.samples, ]
-#test.data <- data[-training.samples, ]
-#train.data <- data # when use all available data to tune a model
-#== Normalize the data. variance=1, mean=varied. Categorical variables are automatically ignored.
-#preproc.param <- preProcess(train.data[,-c("id")], method = c("center", "scale"))
-#data <- predict(preproc.param, data)
-#train.data <- predict(preproc.param, train.data)
-#test.data <- predict(preproc.param, test.data)
-#train.data$category <- as.factor(train.data$category)
-#test.data$category <- as.factor(test.data$category)
+# plot by features #
 ggplot(melt(data[,-c("id")]), aes(value))+geom_histogram(bins=30)+facet_wrap(~variable, scales="free")
-featurePlot(data[, 3:ncol(data)],as.factor(data$category), plot="density", auto.key = list(columns = 2))
+featurePlot(data[, 3:ncol(data)],as.factor(data$category), plot="density", auto.key = list(columns = 2),
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")))
 
 
 #== saildrone data ==#
 test_SD.data <- subset(School_SD.dt, Frequency %in% 200 & category %in% c("KORONA", "manual") & !area %in% "outside")
 test_SD.data[,cols]=NULL
-test_SD.data$original_id <- NULL
 test_SD.data[, Frequency:=NULL]
 # remove negative value of depth from bottom
 for (i in 1:nrow(test_SD.data)) {
@@ -103,7 +82,7 @@ test_SD.data$category <- as.factor(test_SD.data$category)
 ggplot(melt(test_SD.data[,-c("id", "category")]), aes(value))+geom_histogram(bins=30)+facet_wrap(~variable, scales="free")
 
 
-#== step-wise LDA * 10,  Saildrone data ==#
+#== step-wise LDA + apply to Saildrone data ==#
 #library(ROCR)
 library(klaR) #uses stepclass in the klaR
 library(MASS) 
@@ -139,14 +118,6 @@ for(i in 1:2) {
   test.data$category <- as.factor(test.data$category)
   # tune a model
   set.seed(123)
-  #slda <- train(category ~ ., data = train.data[, -c("id")],
-  #              method = "stepLDA", importance = TRUE,metric = "ROC", tuneLength = 10,
-  #              trControl = trainControl(method = "repeatedcv", #"repeatedcv" / "cv"
-  #                                       number = 10, repeats = 3, 
-  #                                       savePredictions = "all", #"all" / "final"
-  #                                       classProbs = TRUE), 
-  #              tuneGrid = data.frame(maxvar,direction),
-  #)
   slda <- train(category ~ ., data = train.data[, -c("id")],
                 method = "stepLDA", importance = TRUE,metric = "ROC", tuneLength = 10,
                 trControl = trainControl(method = "cv", #"repeatedcv" / "cv"
@@ -167,12 +138,7 @@ for(i in 1:2) {
   temp4 <- confusionMatrix(reference=as.factor(test.data$category) , data= predictions, mode = "everything", positive = "SAND")
   confusion.matrix[[paste0(i,"test")]] <- temp4
   slda.lst[[i]] <- slda
-  # plot ROC curve
-  #predictions <- predict(slda, train.data, type="prob")
-  #pred <- prediction(predictions[2], train.data$category)
-  #png(paste0("ROC",i,"_train.png") , width = 800, height = 600)
-  #plot(performance(pred, "tpr", "fpr"), colorize=TRUE)#tpr:true prediction rate, fpr:false prediction rate
-  #dev.off()
+
   # apply to SD data
   for(j in 1:nrow(slda$finalModel$fit$scaling)) {
     score <- score + (slda$finalModel$fit$scaling[j] * test_SD.data[, row.names(slda$finalModel$fit$scaling)[j]])
@@ -251,7 +217,7 @@ lift_df %>%
 #======================#
 for(i in 1:10) {
   score <- 0
-  # 80% : training data, 20% : test data
+  # 100% : training data
   training.samples <- createDataPartition(data$category, p = 1, list = FALSE) 
   train.data <- data[training.samples, ]
   #test.data <- data[-training.samples, ]
@@ -354,9 +320,9 @@ lift_df %>%
 
 
 
-#==========================#
-#== determine ids "SAND" ==#
-#==========================#
+#============================#
+#### determine ids "SAND" ####
+#============================#
 
 ids <- score.df
 ids$pred <- ifelse(score.df$pred=="SAND", 1, 0)
@@ -369,30 +335,20 @@ nonsandeel.dt <- School_SD.dt[id %in% ids_nonsandeel & Frequency %in% 200]
 colnames(sandeel.dt) <- make.unique(names(sandeel.dt)) #for ggplot error
 colnames(nonsandeel.dt) <- make.unique(names(nonsandeel.dt))
 
-test_SD.data$predict <- predict(slda.lst[[10]], test_SD.data)
+test_SD.data$predict <- predict(slda.lst[[1]], test_SD.data)
 featurePlot(test_SD.data[, 3:(ncol(test_SD.data)-1)],as.factor(test_SD.data$predict), plot="density", auto.key = list(columns = 2))
 
-#== add coverage_name ==#
-label <- unique(data.table(vessel = gps.dt$vessel, coverage_name = gps.dt$coverage_name, 
-                           StartTime = gps.dt$StartTime, StopTime = gps.dt$StopTime,
-                           distance_sum = gps.dt$distance_sum, area = gps.dt$area))
+
 sandeel.dt <- data.table(sandeel.dt)
 nonsandeel.dt <- data.table(nonsandeel.dt)
-setDT(sandeel.dt)[setDT(label), on =. (YMD_time >= StartTime, 
-                                       YMD_time <= StopTime,
-                                       area == area, vessel == vessel), 
-                  coverage_name := coverage_name] 
-setDT(nonsandeel.dt)[setDT(label), on =. (YMD_time >= StartTime, 
-                                       YMD_time <= StopTime,
-                                       area == area, vessel == vessel), 
-                  coverage_name := coverage_name]
-
 save(sandeel.dt, file="sandeel.Rdata")
 save(nonsandeel.dt, file="nonsandeel.Rdata")
 
-#=========================#
-#==   biological data   ==#
-#=========================#
+
+
+#===========================#
+####   biological data   ####
+#===========================#
 x <- data.table(matrix(ncol = 5, nrow = 0))
 
 #==  *use only test.data*   ==#
@@ -431,13 +387,15 @@ for(i in 1:length(slda.lst)) {
   colnames(x) <- c("id", "pred", "obs", "data", "attempt")
 }
 
-### method A, B or C ###
-### so far C is best ###
+### method A, B, C ###
 
-#===  (method A) correctly classified all 10 times   ===#
-# *since ids of test data are different at each training,       #
-#  it's rare to have an ideal id which is sandeel for 10 times. #
-#  Thus, this method is not optimal.*                           #
+#===  (method A) correctly classified all 10 attempts   ===#
+# *use this! by setting "seed", all LDA attempts turn the       #
+#  exactly same result.                                         #
+#  (since ids used at LDA tuning are different each attempt,    #
+#  ids of test data are also different each attempt. so, it's   #
+#  very few which determined as sandeel for the all attempts.   #
+#  Thus, this method is not optimal.)                           #
 x$pred_num <- ifelse(x$pred=="SAND", 1, 0)
 x <- x[obs == "SAND"]
 x <- data.table(with(x, aggregate(x[,c("pred_num")], list(id), sum)))
@@ -445,15 +403,12 @@ colnames(x) <- c("id", "pred_num")
 x$pred <- ifelse(x$pred_num == length(slda.lst), "SAND", "OTHER")
 
 #===  (method B) use the best accuracy model    ===#
-#  *This method also leaves too few ids since      # 
-#   maximum N of ids is 1530 and only schools that #
-#   are observed in biological data can be used.*  #
 x$correct <- ifelse(x$pred == x$obs, 1, 0)
 setDT(x)[, accuracy := sum(correct)/.N, by = c("attempt")]
 i <- unique(x[x$accuracy==max(x$accuracy),]$attempt)
 x <- subset(x, attempt == i)
 
-#===  (method C) use all 10 attempt but only consistent result  ===#
+#===  (method C) use all 10 attempts but only consistent result  ===#
 x$correct <- ifelse(x$pred == x$obs, 1, 0)
 setDT(x)[, accuracy := sum(correct)/.N, by = c("attempt")]
 setDT(x)[, duplicate_id := .N, by = c("id")][, discrepancy := mean(correct), by = c("id")]
@@ -470,7 +425,7 @@ bio_id$pred <- gsub('OTHER', 'Incorrect', bio_id$pred)
 bio_id$pred <- gsub('SAND', 'Correct', bio_id$pred)
 
 
-load("Data/LDAresult_80%TrainData_18var_set.seed/bio_id.Rdata")
+load("C:/Data/LDAresult_80%TrainData_18var_set.seed/bio_id.Rdata")
 
 ggplot(bio_id) + my_theme() + theme(axis.title.x = element_blank(), axis.text.x = element_text(size = 15)) + 
   geom_boxplot(aes(x=pred, y = meanLength), fill = "grey") + 
@@ -511,35 +466,9 @@ saildrone <- data.table(rbind(sandeel.dt, nonsandeel.dt))
 
 
 
-#==================================================#
-####  Discriminant analyses 1 time (for test)   ####
-#==================================================#
-maxvar <-(ncol(train.data))-2
-direction <-"backward"
-slda1 <- train(category ~ ., data = train.data[, -c("id")],
-               method = "stepLDA", importance = TRUE,metric="ROC", tuneLength=10,
-               trControl = trainControl(method = "repeatedcv",number=10, repeats = 3, savePredictions = "final", classProbs = TRUE), #"repeatedcv" / "cv"
-               tuneGrid=data.frame(maxvar,direction),
-)
-slda1$finalModel
-varImp(slda1)
-slda1
-slda1$finalModel$fit
-coef <- data.table(slda1$finalModel$fit$scaling, keep.rownames = TRUE)
-
-predictions.test <- predict(slda1, test.data) #, type="prob"
-mean(predictions.test==test.data$category)
-confusionMatrix(reference=as.factor(test.data$category) , data= predictions.test, mode = "everything", positive = "SAND")
-
-library(ROCR)
-predictions.test <- predict(slda, test.data, type="prob")
-pred <- prediction(predictions.test[2], test.data$category)
-plot(performance(pred, "tpr", "fpr"), colorize=TRUE)#tpr:true prediction rate, fpr:false prediction rate
-
 
 
 #==========================================#
-#===         find Sandeel school        ===#
 #### Discriminant analyses (with 18kHz) ####
 #==========================================#
 
@@ -654,11 +583,11 @@ for(i in 1:2) {
 
 rm(temp, temp2, temp3, temp4, temp5, slda, training.samples, preproc.param)
 
-save(coef, file="Data/coef.Rdata")
-save(confusion.matrix, file="Data/confusion.matrix.Rdata")
-save(slda.lst, file="Data/slda.lst.Rdata")
-save(for_lift, file = "Data/for_lift.Rdata")
-save(data.lst, file = "Data/data.lst.Rdata")
+save(coef, file="C:/Data/coef.Rdata")
+save(confusion.matrix, file="C:/Data/confusion.matrix.Rdata")
+save(slda.lst, file="C:/Data/slda.lst.Rdata")
+save(for_lift, file = "C:/Data/for_lift.Rdata")
+save(data.lst, file = "C:/Data/data.lst.Rdata")
 #
 
 
@@ -707,9 +636,9 @@ lift_df %>%
   labs(x = "False positive", y = "True positive")
 
 
-#=========================#
-#==   biological data   ==#
-#=========================#
+#===========================#
+####   biological data   ####
+#===========================#
 x <- data.table(matrix(ncol = 5, nrow = 0))
 
 #==  *use only test.data*   ==#
@@ -749,7 +678,6 @@ for(i in 1:length(slda.lst)) {
 }
 
 ### method A, B or C ###
-### so far C is best ###
 
 #===  (method A) correctly classified all 10 times   ===#
 # *since ids of test data are different at each training,       #
@@ -794,6 +722,10 @@ ggplot(bio_id) + my_theme() + theme(legend.title = element_blank())+
   geom_density(aes(x=meanLength, fill=pred), colour="grey50", alpha=0.5) +
   labs(x="mean body length of a trawl catch (cm)", y="Density")
 nrow(bio_id[pred=='Correct'])/nrow(bio_id)
+
+
+
+
 
 
 
@@ -1178,18 +1110,71 @@ nrow(bio_id[pred=='Correct'])/nrow(bio_id)
 
 
 #========================================================================================================================#
-#### test code                                                                                                        ####
+#### test code    ####
 #========================================================================================================================#
 
 
-#replace NaN by interpolating previous and next non-NaN observation values
-#library("zoo")
-#bottom.dt$BottomDepth <- zoo::na.approx(bottom.dt$BottomDepth) 
+
+
+#==================================================#
+####  Discriminant analyses 1 time (for test)   ####
+#==================================================#
+maxvar <-(ncol(train.data))-2
+direction <-"backward"
+slda1 <- train(category ~ ., data = train.data[, -c("id")],
+               method = "stepLDA", importance = TRUE,metric="ROC", tuneLength=10,
+               trControl = trainControl(method = "repeatedcv",number=10, repeats = 3, savePredictions = "final", classProbs = TRUE), #"repeatedcv" / "cv"
+               tuneGrid=data.frame(maxvar,direction),
+)
+slda1$finalModel
+varImp(slda1)
+slda1
+slda1$finalModel$fit
+coef <- data.table(slda1$finalModel$fit$scaling, keep.rownames = TRUE)
+
+predictions.test <- predict(slda1, test.data) #, type="prob"
+mean(predictions.test==test.data$category)
+confusionMatrix(reference=as.factor(test.data$category) , data= predictions.test, mode = "everything", positive = "SAND")
+
+library(ROCR)
+predictions.test <- predict(slda, test.data, type="prob")
+pred <- prediction(predictions.test[2], test.data$category)
+plot(performance(pred, "tpr", "fpr"), colorize=TRUE)#tpr:true prediction rate, fpr:false prediction rate
+
+
+
+#==========================================#
+####  compare different LDA results    ####
+#==========================================#
+
+load('sandeel_diffLDAresults.Rdata')
+# add column "sandeel" or "non_sandeel" 
+sandeel_diffLDAresults.dt[, pred:= ifelse((LDA %like% "nonsandeel"), "non-sandeel", "sandeel")]
+sandeel_diffLDAresults.dt$LDA <- gsub("_nonsandeel","",as.character(sandeel_diffLDAresults.dt$LDA))
+# re-order the results for boxplot
+table(sandeel_diffLDAresults.dt$LDA)
+sandeel_diffLDAresults.dt$LDA <- factor(sandeel_diffLDAresults.dt$LDA,
+                                        levels = c('3000', '1000', '2000',
+                                                   '80train', '80train18var'), 
+                                        ordered = TRUE)
+ggplot(sandeel_diffLDAresults.dt
+       [!LDA %in% c("2000")]) + 
+  geom_boxplot(aes(y = log(sA), x = LDA, fill = pred)) + 
+  my_theme() + theme(axis.title.x = element_blank(), legend.title = element_blank()) +
+  scale_x_discrete(labels = c('100% 14var\n(3019)', 
+                              '100% 14var\n(1085)',
+                              '80% 14var\n(958)',
+                              '80% 18var\n(1072)'))
+
+#===========================================#
+
+
+
 
 
 
 #=======================================#
-####      find Sandeel school        ####
+###       find Sandeel school         ###
 #=======================================#
 
 #== frequency response by category / area (use DT "joined") ==#
@@ -1736,9 +1721,9 @@ x <- data.table(id = data.lst[[paste0(i,"test")]]$id,
 
 
 
-#=========================#
-#### Logistic analysis ####
-#=========================#
+#===========================#
+####  Logistic analysis  ####
+#===========================#
 cols <- c("id","Frequency", "Date","Latitude", "Longitude", "PingNo", "pixelNo", "SampleCount", "vessel", "area", "YMD_time", "altitude", "nor_Depth", 
           "weighted_meanDepth")
 #"SE","sV_stdv","school_length","school_height", "DepthStart", "DepthStop", "meanDepth" ,"sA", "altitude_degree", "Perimeter", "DepthfromBottom", "Elongation", "school_rect", "school_circ",
@@ -1826,30 +1811,6 @@ sandeel.dt <-  subset(School_EROS.dt, id %in% ids & Frequency %in% 200)
 
 
 
-#==========================================#
-####   compare different LDA results    ####
-#==========================================#
-
-load('sandeel_diffLDAresults.Rdata')
-# add column "sandeel" or "non_sandeel" 
-sandeel_diffLDAresults.dt[, pred:= ifelse((LDA %like% "nonsandeel"), "non-sandeel", "sandeel")]
-sandeel_diffLDAresults.dt$LDA <- gsub("_nonsandeel","",as.character(sandeel_diffLDAresults.dt$LDA))
-# re-order the results for boxplot
-table(sandeel_diffLDAresults.dt$LDA)
-sandeel_diffLDAresults.dt$LDA <- factor(sandeel_diffLDAresults.dt$LDA,
-                       levels = c('3000', '1000', '2000',
-                                  '80train', '80train18var'), 
-                       ordered = TRUE)
-ggplot(sandeel_diffLDAresults.dt
-       [!LDA %in% c("2000")]) + 
-  geom_boxplot(aes(y = log(sA), x = LDA, fill = pred)) + 
-  my_theme() + theme(axis.title.x = element_blank(), legend.title = element_blank()) +
-  scale_x_discrete(labels = c('100% 14var\n(3019)', 
-                              '100% 14var\n(1085)',
-                              '80% 14var\n(958)',
-                              '80% 18var\n(1072)'))
-
-#===========================================#
 
 
 
